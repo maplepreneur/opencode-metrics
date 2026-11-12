@@ -1,0 +1,67 @@
+{
+  "name": "opencode-metrics",
+  "version": "0.1.0",
+  "description": "Local, provider-neutral usage, cost, LOC, and PR analytics for OpenCode and OpenCode Desktop",
+  "type": "module",
+  "license": "MIT",
+  "author": "maplepreneur",
+  "homepage": "https://github.com/maplepreneur/opencode-metrics#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maplepreneur/opencode-metrics.git"
+  },
+  "bugs": {
+    "url": "https://github.com/maplepreneur/opencode-metrics/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "metrics",
+    "analytics",
+    "ai-cost",
+    "tokens",
+    "pull-requests"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "import": "./dist/rpc.js"
+    },
+    "./gui-experimental": "./dist/gui-experimental.cjs",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "opencode-metrics": "./bin/opencode-metrics.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "RESEARCH.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.js",
+    "prepublishOnly": "npm test"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "solid-js": "^1.9.19",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-solid": "^2.11.16"
+  }
+}
