@@ -68,6 +68,7 @@ interface Bucket {
   sessions: Set<string>
   steps: number
   prs: Set<string>
+  pricingSources: Set<string>
 }
 
 function bucket(): Bucket {
@@ -83,6 +84,7 @@ function bucket(): Bucket {
     sessions: new Set(),
     steps: 0,
     prs: new Set(),
+    pricingSources: new Set(),
   }
 }
 
@@ -107,6 +109,9 @@ function addUsage(target: Bucket, record: UsageRecord, prKey?: string): void {
   target.tokens.cache.write += number(record.tokens.cache?.write)
   target.sessions.add(record.sessionID)
   target.steps++
+  if (record.pricingSource && record.estimatedCost !== undefined) {
+    target.pricingSources.add(`${record.pricingSource.kind}:${record.pricingSource.providerID}/${record.pricingSource.modelID}`)
+  }
   if (prKey) target.prs.add(prKey)
 }
 
@@ -308,6 +313,7 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
       totalTokens: metrics.totalTokens,
       sessions: metrics.sessions,
       steps: metrics.steps,
+      pricingSources: [...value.pricingSources].sort(),
     }
   })
 

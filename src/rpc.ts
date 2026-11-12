@@ -6,6 +6,14 @@ const empty = { type: "object", additionalProperties: false } as const
 export const MetricsRpc = Rpc.define({
   id: "opencode-metrics",
   methods: {
+    pricing: {
+      input: empty,
+      output: object,
+    },
+    refreshPricing: {
+      input: empty,
+      output: object,
+    },
     report: {
       input: {
         type: "object",

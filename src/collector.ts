@@ -3,6 +3,7 @@ import path from "node:path"
 import type { Context as ServerContext } from "@opencode/plugin/promise/plugin"
 import { currentBranch, turnDiff } from "./git.js"
 import { estimateCost, normalizeTokens } from "./metrics.js"
+import { ApiPricingCatalog, type PriceQuote, type PricingStatus } from "./pricing.js"
 import { MetricsStore } from "./store.js"
 import type {
   FileLineChange,
@@ -136,37 +137,54 @@ export class Collector {
     private readonly ctx: Context,
     readonly store: MetricsStore,
     private readonly options: CollectorOptions = {},
+    private readonly pricing: ApiPricingCatalog = new ApiPricingCatalog(ctx.storage),
   ) {}
 
   async initialize(): Promise<void> {
-    await this.refreshModels()
+    await Promise.all([this.refreshModels(), this.pricing.initialize()])
+  }
+
+  pricingStatus(): PricingStatus {
+    return this.pricing.status()
+  }
+
+  async refreshPricing(): Promise<PricingStatus> {
+    return this.pricing.refresh()
   }
 
   async refreshModels(): Promise<void> {
     this.models = (await this.ctx.model.list()).data
   }
 
-  private price(model: ModelRef, tokens: TokenUsage): Price | undefined {
+  private price(model: ModelRef, tokens: TokenUsage): PriceQuote | undefined {
     const override = this.options.prices?.[`${model.providerID}/${model.id}`]
     if (override) {
       return {
-        input: finite(override.input),
-        output: finite(override.output),
-        cacheRead: finite(override.cacheRead),
-        cacheWrite: finite(override.cacheWrite),
+        price: {
+          input: finite(override.input),
+          output: finite(override.output),
+          cacheRead: finite(override.cacheRead),
+          cacheWrite: finite(override.cacheWrite),
+        },
+        source: { kind: "override", catalog: "custom", providerID: model.providerID, modelID: model.id },
       }
     }
     const info = this.models.find((candidate) => candidate.providerID === model.providerID && (candidate.id === model.id || candidate.modelID === model.id))
+    const publicApi = this.pricing.quote({ providerID: model.providerID, modelID: model.id, package: info?.package }, tokens)
+    if (publicApi) return publicApi
     if (!info || info.cost.length === 0) return undefined
     const context = tokens.input + tokens.cache.read + tokens.cache.write
     const tier = [...info.cost]
       .sort((a, b) => (a.tier?.size ?? -1) - (b.tier?.size ?? -1))
       .reduce((selected, candidate) => (!candidate.tier || context > candidate.tier.size ? candidate : selected), info.cost[0])
     return {
-      input: finite(tier.input),
-      output: finite(tier.output),
-      cacheRead: finite(tier.cache.read),
-      cacheWrite: finite(tier.cache.write),
+      price: {
+        input: finite(tier.input),
+        output: finite(tier.output),
+        cacheRead: finite(tier.cache.read),
+        cacheWrite: finite(tier.cache.write),
+      },
+      source: { kind: "provider-catalog", catalog: "opencode", providerID: model.providerID, modelID: model.id },
     }
   }
 
@@ -180,6 +198,7 @@ export class Collector {
     cost: number
     tokens: TokenUsage
   }): Promise<UsageRecord> {
+    const quote = this.price(input.model, input.tokens)
     const record: UsageRecord = {
       id: input.id,
       sessionID: input.session.id,
@@ -190,7 +209,8 @@ export class Collector {
       source: input.source,
       model: input.model,
       cost: input.cost,
-      estimatedCost: estimateCost(input.tokens, this.price(input.model, input.tokens)),
+      estimatedCost: estimateCost(input.tokens, quote?.price),
+      pricingSource: quote?.source,
       tokens: input.tokens,
     }
     await this.store.usage(record)
@@ -310,6 +330,13 @@ export class Collector {
     let usageRecords = 0
     let lineRecords = 0
     const errors: string[] = []
+    if (input.diffs !== false) {
+      try {
+        await this.refreshPricing()
+      } catch (error) {
+        errors.push(`pricing: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     do {
       const page = await this.ctx.session.list({
         directory: input.all ? undefined : input.directory ?? this.ctx.location.directory,

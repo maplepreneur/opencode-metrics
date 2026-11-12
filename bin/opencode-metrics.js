@@ -61,7 +61,7 @@ function report() {
   }
   const t = data.totals
   console.log(`OpenCode Metrics · ${all || days === 0 ? "all time" : `last ${days} days`} · ${t.costBasis} cost basis`)
-  console.log(`Effective cost ${money(t.cost)} · Reported ${money(t.reportedCost)} · List estimate ${money(t.estimatedCost)}`)
+  console.log(`Effective cost ${money(t.cost)} · Reported ${money(t.reportedCost)} · Public API estimate ${money(t.estimatedCost)}`)
   console.log(`Tokens: ${number(t.inputTokens)} input · ${number(t.outputTokens)} output · ${number(t.reasoningTokens)} reasoning · ${number(t.cacheReadTokens)} cache read · ${number(t.cacheWriteTokens)} cache write`)
   console.log(`Lines: +${number(t.linesAdded)} / -${number(t.linesDeleted)} (${number(t.linesChanged)} changed) · ${ratio(t.costPerLine)}/changed line · ${ratio(t.costPerAddedLine)}/added line`)
   console.log(`Activity: ${t.sessions} sessions · ${t.steps} model calls · ${t.prs} attributed PRs`)
@@ -80,6 +80,7 @@ function help() {
 
 Usage:
   opencode-metrics report [--days 30 | --all] [--project ID] [--json]
+  opencode-metrics prices
   opencode-metrics sync [--all] [--directory PATH] [--no-diffs]
   opencode-metrics discover [--directory PATH] [--session ID] [--limit 100]
   opencode-metrics assign SESSION_ID PR_NUMBER|none
@@ -90,7 +91,10 @@ The plugin must be enabled in opencode.json(c). No account or cloud service is u
 
 try {
   if (command === "report") report()
-  else if (command === "sync") {
+  else if (command === "prices") {
+    const result = call("refreshPricing")
+    console.log(JSON.stringify(result, null, 2))
+  } else if (command === "sync") {
     const result = call("sync", { all: flag("--all"), directory: resolve(option("--directory", process.cwd())), diffs: !flag("--no-diffs") })
     console.log(JSON.stringify(result, null, 2))
   } else if (command === "discover") {

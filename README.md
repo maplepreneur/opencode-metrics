@@ -64,6 +64,7 @@ In OpenCode Desktop, open a session's side panel and choose **Metrics**, or run 
 
 - **Full sync** imports all sessions and historical per-turn diffs.
 - **Discover PRs** uses `gh pr list` for the current project.
+- **Update API prices** refreshes public lab rates and recalculates all estimates.
 - **Export** downloads the raw local metrics as JSON.
 - **Save override** assigns the current session to a PR or excludes it from automatic attribution.
 
@@ -82,6 +83,7 @@ Commands:
 
 ```text
 opencode-metrics report [--days 30 | --all] [--project ID] [--json]
+opencode-metrics prices
 opencode-metrics sync [--all] [--directory PATH] [--no-diffs]
 opencode-metrics discover [--directory PATH] [--session ID] [--limit 100]
 opencode-metrics assign SESSION_ID PR_NUMBER|none
@@ -95,6 +97,9 @@ Examples:
 ```bash
 # Complete historical import for every project
 opencode-metrics sync --all
+
+# Refresh public API prices and recalculate all historical estimates
+opencode-metrics prices
 
 # Aggregate JSON for automation
 opencode-metrics report --days 30 --json
@@ -119,11 +124,31 @@ OpenCode records token usage and cost for every provider. The plugin does not sp
 Each usage record retains two values:
 
 - **Reported cost**: the USD value supplied by OpenCode;
-- **List estimate**: calculated from the active model's catalog rates or your overrides.
+- **Public API estimate**: the value of the same tokens at public API list rates from [models.dev](https://models.dev/), or your explicit override. If no public model matches, the active OpenCode model catalog is the fallback.
 
-**Effective cost**, used for totals and ratios, is reported cost when it is greater than zero. Otherwise it falls back to a nonzero list estimate. The dashboard labels the resulting basis as `reported`, `estimated`, `mixed`, or `zero` and always shows reported and estimated totals separately.
+**Effective cost**, used for project, model, daily, LOC, and PR totals and ratios, is reported cost when it is greater than zero. Otherwise it falls back to a nonzero public API estimate. The dashboard labels the resulting basis as `reported`, `estimated`, `mixed`, or `zero` and always shows reported and estimated totals separately. Model rows identify the exact pricing source, such as `public-api:moonshotai/kimi-k3.1-pro`.
 
-This distinction matters because `$0` can mean a free model, an included subscription, a custom provider without pricing, or genuinely unmetered use. Effective cost is an analytical estimate, **not an invoice**. Check provider bills for actual charges.
+This distinction matters because `$0` can mean a free model, an included subscription, a custom provider without pricing, or genuinely unmetered use. Public API estimates value subscription/free usage as if it were metered API usage; they are **not invoices or subscription charges**. Check provider bills for actual charges.
+
+### Public API pricing catalog
+
+The plugin refreshes `https://models.dev/api.json` on startup, every six hours, on full sync, and when you choose **Update API prices** in Desktop or run `opencode-metrics prices`. The refresh action also recalculates every stored usage record without re-importing line diffs. Only pricing metadata is cached in durable plugin storage.
+
+An offline snapshot is bundled for OpenAI, Anthropic, Google, Moonshot global/CN, DeepSeek, xAI, and Mistral. The live catalog includes many additional providers. Exact model matches, context-price tiers, output/reasoning, and cache rates are supported. OpenCode/OpenCode Go routes and OpenRouter, Azure, Bedrock, Copilot, and Vertex-style model names resolve to upstream public labs when an exact public model is available. Unknown models never receive a guessed price.
+
+Kimi subscription aliases include:
+
+| Subscription model | Public API price model |
+| --- | --- |
+| `k3.1-pro` | `moonshotai/kimi-k3.1-pro` |
+| `k3.1-pro-highspeed` | `moonshotai/kimi-k3.1-pro-highspeed` |
+| `k3`, `k3-256k` | `moonshotai/kimi-k3` |
+| `kimi-for-coding` | `moonshotai/kimi-k2.7-code` |
+| `kimi-for-coding-highspeed` | `moonshotai/kimi-k2.7-code-highspeed` |
+
+The `kimi-code-plan-cn` provider uses `moonshotai-cn` prices instead. For example, the global K3.1 Pro snapshot values regular input at $2/M, output at $10/M, cache reads at $0.20/M, and cache writes at $2/M. Rates can change; use the refresh action and inspect the model's pricing source.
+
+Explicit `prices` overrides take precedence over public API and OpenCode catalog prices.
 
 Price overrides use USD per million tokens and the key `providerID/modelID`:
 
@@ -192,7 +217,7 @@ GitHub line counts and AI session line counts are shown separately: they measure
 
 Records use OpenCode's durable plugin storage. They contain only session/project IDs, directories, branches, model identifiers, timestamps, token/cost counts, relative file paths and line counts, PR metadata, and attribution overrides.
 
-The plugin **does not store prompts, source code, patch text, provider responses, API keys, or GitHub credentials**. Raw exports contain these metrics only. Git, `gh`, and `opencode` subprocesses use argument arrays rather than interpolated shell commands.
+The plugin **does not store prompts, source code, patch text, provider responses, API keys, or GitHub credentials**. Raw exports contain these metrics only. The pricing refresh sends only an anonymous HTTP GET to the public models.dev catalog; no session or usage data is included. Git, `gh`, and `opencode` subprocesses use argument arrays rather than interpolated shell commands.
 
 ## Development
 
@@ -213,6 +238,8 @@ For live Desktop development, run `npm run build` after changes. The repository'
 - `src/collector.ts`: usage, line, and auxiliary-total collection;
 - `src/store.ts`: durable, stable-key local records;
 - `src/metrics.ts`: pure aggregation and cost calculations;
+- `src/pricing.ts`: live/cached public API prices and upstream model aliases;
+- `src/pricing-fallback.ts`: generated offline snapshot (`npm run pricing:update`);
 - `src/git.ts`: Git, GitHub CLI, and OpenCode turn-diff adapters;
 - `src/rpc.ts`: typed RPC contract;
 - `src/gui.tsx`: Solid OpenCode Desktop panel;

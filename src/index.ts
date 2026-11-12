@@ -28,6 +28,13 @@ export default Plugin.define({
     const controller = new AbortController()
 
     const registration = await ctx.rpc.register(MetricsRpc, {
+      pricing: async () => collector.pricingStatus(),
+      refreshPricing: async () => {
+        const pricing = await collector.refreshPricing()
+        const sync = await collector.sync({ all: true, diffs: false })
+        await registration.events.emit("changed", { reason: "pricing" })
+        return { pricing, sync }
+      },
       report: async (input) => aggregate(await store.export(), (input ?? {}) as ReportFilter),
       sync: async (input) => {
         const value = (input ?? {}) as { directory?: string; all?: boolean; diffs?: boolean }
@@ -122,13 +129,24 @@ export default Plugin.define({
       if (event.status === "completed") return collector.afterTool({ ...event, metadata: event.result.metadata })
     })
 
-    // Import historical usage without launching one CLI process per old turn.
-    // The Desktop/CLI Sync action performs the complete turn-diff import.
-    void collector
-      .sync({ directory: ctx.location.directory, diffs: false })
-      .then(() => changed("startup"))
-      .catch((cause) => console.error(`[opencode-metrics] startup import: ${error(cause)}`))
+    // Refresh public API prices, then import usage without launching one CLI
+    // process per old turn. The Desktop/CLI Sync action also imports diffs.
+    const pricingTimer = setInterval(() => {
+      void collector.refreshPricing().catch((cause) => console.error(`[opencode-metrics] pricing refresh: ${error(cause)}`))
+    }, 6 * 60 * 60 * 1000)
+    void (async () => {
+      try {
+        await collector.refreshPricing()
+      } catch (cause) {
+        console.error(`[opencode-metrics] pricing refresh: ${error(cause)}`)
+      }
+      await collector.sync({ directory: ctx.location.directory, diffs: false })
+      await changed("startup")
+    })().catch((cause) => console.error(`[opencode-metrics] startup import: ${error(cause)}`))
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      clearInterval(pricingTimer)
+    }
   },
 })

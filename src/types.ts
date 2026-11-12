@@ -16,6 +16,14 @@ export interface ModelRef {
 
 export type UsageSource = "primary" | "compaction" | "title" | "generate"
 
+export interface PricingSource {
+  kind: "public-api" | "provider-catalog" | "override"
+  catalog: "models.dev" | "opencode" | "custom"
+  providerID: string
+  modelID: string
+  fetchedAt?: number
+}
+
 export interface UsageRecord {
   id: string
   sessionID: string
@@ -27,8 +35,9 @@ export interface UsageRecord {
   model: ModelRef
   /** USD reported by OpenCode. Zero can mean free, subscribed, or unpriced. */
   cost: number
-  /** USD estimated from the model catalog or a user price override. */
+  /** USD estimated from public API prices, the model catalog, or an override. */
   estimatedCost?: number
+  pricingSource?: PricingSource
   tokens: TokenUsage
 }
 
@@ -124,6 +133,7 @@ export interface ModelMetrics {
   totalTokens: number
   sessions: number
   steps: number
+  pricingSources: string[]
 }
 
 export interface PullRequestMetrics extends Metrics {

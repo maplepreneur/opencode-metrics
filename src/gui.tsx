@@ -1,6 +1,7 @@
 import { Command, MenuItem, Panel, Plugin, usePlugin, type PanelTab } from "@opencode/plugin/gui"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { MetricsRpc } from "./rpc.js"
+import type { PricingStatus } from "./pricing.js"
 import type { ExportData, Metrics, Report, SyncResult } from "./types.js"
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 })
@@ -31,7 +32,7 @@ function Card(props: { label: string; value: string; detail?: string }) {
 function MetricCards(props: { metrics: Metrics }) {
   return (
     <div class="ocm-grid">
-      <Card label="Effective AI cost" value={usd(props.metrics.cost)} detail={`${usd(props.metrics.reportedCost)} reported · ${usd(props.metrics.estimatedCost)} list estimate`} />
+      <Card label="Effective AI cost" value={usd(props.metrics.cost)} detail={`${usd(props.metrics.reportedCost)} reported · ${usd(props.metrics.estimatedCost)} public API estimate`} />
       <Card label="Changed lines" value={num(props.metrics.linesChanged)} detail={`+${num(props.metrics.linesAdded)} / −${num(props.metrics.linesDeleted)}`} />
       <Card label="Cost / changed line" value={perLine(props.metrics.costPerLine)} detail={`${perLine(props.metrics.costPerAddedLine)} / added line`} />
       <Card label="Input tokens" value={num(props.metrics.inputTokens)} detail={`${num(props.metrics.cacheReadTokens)} cache read · ${num(props.metrics.cacheWriteTokens)} cache write`} />
@@ -44,6 +45,7 @@ function MetricCards(props: { metrics: Metrics }) {
 function Dashboard(props: { session: { id: string; directory: string } }) {
   const ctx = usePlugin()
   const [report, setReport] = createSignal<Report>()
+  const [pricing, setPricing] = createSignal<PricingStatus>()
   const [tab, setTab] = createSignal("overview")
   const [days, setDays] = createSignal(30)
   const [busy, setBusy] = createSignal("")
@@ -55,10 +57,12 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
   async function load(): Promise<void> {
     try {
       const dayCount = days()
-      const result = (await ctx.client.rpc(MetricsRpc).report({
-        from: dayCount ? Date.now() - dayCount * 86_400_000 : undefined,
-      })) as Report
+      const [result, priceStatus] = await Promise.all([
+        ctx.client.rpc(MetricsRpc).report({ from: dayCount ? Date.now() - dayCount * 86_400_000 : undefined }) as Promise<Report>,
+        ctx.client.rpc(MetricsRpc).pricing({}) as Promise<PricingStatus>,
+      ])
       setReport(result)
+      setPricing(priceStatus)
       setFailure("")
     } catch (cause) {
       setFailure(cause instanceof Error ? cause.message : String(cause))
@@ -95,6 +99,14 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
     await action("discover", async () => {
       const result = (await ctx.client.rpc(MetricsRpc).discover({ sessionID: props.session.id })) as { count: number }
       return `Discovered ${result.count} pull requests for this project.`
+    })
+  }
+
+  async function refreshPrices(): Promise<void> {
+    await action("prices", async () => {
+      const result = (await ctx.client.rpc(MetricsRpc).refreshPricing({})) as { pricing: PricingStatus; sync: SyncResult }
+      setPricing(result.pricing)
+      return `Updated ${result.pricing.models} public API price entries and recalculated ${result.sync.usageRecords} usage records.`
     })
   }
 
@@ -138,6 +150,7 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
         <div class="ocm-actions">
           <button disabled={!!busy()} onClick={() => void sync()}>{busy() === "sync" ? "Syncing…" : "Full sync"}</button>
           <button disabled={!!busy()} onClick={() => void discover()}>{busy() === "discover" ? "Discovering…" : "Discover PRs"}</button>
+          <button disabled={!!busy()} onClick={() => void refreshPrices()}>{busy() === "prices" ? "Updating…" : "Update API prices"}</button>
           <button disabled={!!busy()} onClick={() => void exportJson()}>Export</button>
         </div>
       </header>
@@ -146,6 +159,7 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
           <option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={0}>All time</option>
         </select></label>
         <span>Cost basis: {report()?.totals.costBasis ?? "—"}</span>
+        <span>API prices: {pricing() ? `${pricing()!.source} · ${pricing()!.models} models` : "—"}</span>
       </div>
       <Show when={message()}><div class="ocm-notice">{message()}</div></Show>
       <Show when={failure()}><div class="ocm-error">{failure()}</div></Show>
@@ -162,12 +176,12 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
                 <tbody><For each={[...data().days].reverse().slice(0, 14)} fallback={<Empty columns={7} text="No usage in this range" />}>{(day) => <tr><td>{day.date}</td><td>{num(day.sessions)}</td><td>{num(day.inputTokens)}</td><td>{num(day.outputTokens)}</td><td>{num(day.linesChanged)}</td><td>{usd(day.cost)}</td><td>{perLine(day.costPerLine)}</td></tr>}</For></tbody>
               </table></div>
               <div class="ocm-unassigned"><strong>Unassigned to a PR</strong><span>{usd(data().unassigned.cost)} · {num(data().unassigned.linesChanged)} lines · {num(data().unassigned.sessions)} sessions</span></div>
-              <p class="ocm-note">Effective cost uses OpenCode's reported cost, falling back to catalog or configured estimates only when reported cost is zero. Token total excludes cache to avoid presenting cached input as fresh input.</p>
+              <p class="ocm-note">Effective cost uses OpenCode's reported cost, falling back to public API-equivalent or configured estimates only when reported cost is zero. Public API estimates value subscription and free usage at list token rates; they are not invoices. Token total excludes cache to avoid presenting cached input as fresh input.</p>
             </section>
           </Show>
           <Show when={tab() === "models"}>
             <div class="ocm-table"><table><thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Reasoning</th><th>Cache read</th><th>Cost</th></tr></thead>
-              <tbody><For each={data().models} fallback={<Empty columns={7} text="No model usage" />}>{(model) => <tr><td><strong>{model.providerID}/{model.modelID}</strong><small>{model.variant ?? "default variant"}</small></td><td>{num(model.steps)}</td><td>{num(model.inputTokens)}</td><td>{num(model.outputTokens)}</td><td>{num(model.reasoningTokens)}</td><td>{num(model.cacheReadTokens)}</td><td>{usd(model.cost)}</td></tr>}</For></tbody>
+              <tbody><For each={data().models} fallback={<Empty columns={7} text="No model usage" />}>{(model) => <tr><td><strong>{model.providerID}/{model.modelID}</strong><small>{model.variant ?? "default variant"}{model.pricingSources.length ? ` · ${model.pricingSources.join(", ")}` : " · no public API price match"}</small></td><td>{num(model.steps)}</td><td>{num(model.inputTokens)}</td><td>{num(model.outputTokens)}</td><td>{num(model.reasoningTokens)}</td><td>{num(model.cacheReadTokens)}</td><td>{usd(model.cost)}</td></tr>}</For></tbody>
             </table></div>
           </Show>
           <Show when={tab() === "projects"}>
