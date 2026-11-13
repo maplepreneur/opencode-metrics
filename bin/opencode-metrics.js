@@ -33,7 +33,7 @@ function call(method, input = {}) {
   }
 }
 
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 })
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 const money = (value) => usd.format(value)
 const number = (value) => integer.format(value)
@@ -60,13 +60,15 @@ function report() {
     return
   }
   const t = data.totals
-  console.log(`OpenCode Metrics · ${all || days === 0 ? "all time" : `last ${days} days`} · ${t.costBasis} cost basis`)
+  const provider = option("--provider")
+  const groups = data.modelGroups.filter((model) => !provider || model.providerID === provider)
+  console.log(`OpenCode Metrics · ${all || days === 0 ? "all time" : `last ${days} days`} · ${t.costBasis} cost basis${provider ? ` · ${provider}` : ""}`)
   console.log(`Effective cost ${money(t.cost)} · Reported ${money(t.reportedCost)} · Public API estimate ${money(t.estimatedCost)}`)
   console.log(`Tokens: ${number(t.inputTokens)} input · ${number(t.outputTokens)} output · ${number(t.reasoningTokens)} reasoning · ${number(t.cacheReadTokens)} cache read · ${number(t.cacheWriteTokens)} cache write`)
   console.log(`Lines: +${number(t.linesAdded)} / -${number(t.linesDeleted)} (${number(t.linesChanged)} changed) · ${ratio(t.costPerLine)}/changed line · ${ratio(t.costPerAddedLine)}/added line`)
   console.log(`Activity: ${t.sessions} sessions · ${t.steps} model calls · ${t.prs} attributed PRs`)
   console.log(`Unassigned: ${money(data.unassigned.cost)} · ${number(data.unassigned.linesChanged)} lines · ${data.unassigned.sessions} sessions\n`)
-  table(["Provider / model", "Calls", "Input", "Output", "Cost"], data.models.map((m) => [`${m.providerID}/${m.modelID}${m.variant ? ` (${m.variant})` : ""}`, m.steps, number(m.inputTokens), number(m.outputTokens), money(m.cost)]))
+  table(["Provider / model", "Efforts", "Calls", "Input", "Output", "Cost"], groups.map((m) => [`${m.providerID}/${m.modelID}`, m.variants.length, m.steps, number(m.inputTokens), number(m.outputTokens), money(m.cost)]))
   console.log()
   table(["Project", "Sessions", "Lines", "Cost", "Cost/line"], data.projects.map((p) => [p.name, p.sessions, number(p.linesChanged), money(p.cost), ratio(p.costPerLine)]))
   if (data.pullRequests.length) {
@@ -79,7 +81,7 @@ function help() {
   console.log(`opencode-metrics — local usage, cost, LOC, and PR analytics
 
 Usage:
-  opencode-metrics report [--days 30 | --all] [--project ID] [--json]
+  opencode-metrics report [--days 30 | --all] [--project ID] [--provider ID] [--json]
   opencode-metrics prices
   opencode-metrics sync [--all] [--directory PATH] [--no-diffs]
   opencode-metrics discover [--directory PATH] [--session ID] [--limit 100]

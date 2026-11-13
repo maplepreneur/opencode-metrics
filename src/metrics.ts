@@ -4,6 +4,7 @@ import type {
   ExportData,
   LineRecord,
   Metrics,
+  ModelGroupMetrics,
   ModelMetrics,
   Price,
   ProjectMetrics,
@@ -216,6 +217,7 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
   const unassigned = bucket()
   const projects = new Map<string, Bucket>()
   const models = new Map<string, Bucket>()
+  const modelGroups = new Map<string, Bucket>()
   const prBuckets = new Map<string, { bucket: Bucket; manual: boolean; branch: boolean }>()
   const days = new Map<string, Bucket>()
 
@@ -246,6 +248,11 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
     const model = models.get(modelKey) ?? bucket()
     addUsage(model, record)
     models.set(modelKey, model)
+
+    const groupKey = `${record.model.providerID}\0${record.model.id}`
+    const group = modelGroups.get(groupKey) ?? bucket()
+    addUsage(group, record)
+    modelGroups.set(groupKey, group)
 
     if (linked.pr) {
       const pr = prBucket(linked.pr.key)
@@ -295,13 +302,11 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
     return { projectID, name: basename(directory) || projectID.slice(0, 8), directory, ...finish(value) }
   })
 
-  const modelRows: ModelMetrics[] = [...models.entries()].map(([key, value]) => {
-    const [providerID, modelID, variant] = key.split("\0")
+  function modelValues(providerID: string, modelID: string, value: Bucket): Omit<ModelMetrics, "variant"> {
     const metrics = finish(value)
     return {
       providerID,
       modelID,
-      ...(variant ? { variant } : {}),
       cost: metrics.cost,
       reportedCost: metrics.reportedCost,
       estimatedCost: metrics.estimatedCost,
@@ -315,6 +320,18 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
       steps: metrics.steps,
       pricingSources: [...value.pricingSources].sort(),
     }
+  }
+
+  const modelRows: ModelMetrics[] = [...models.entries()].map(([key, value]) => {
+    const [providerID, modelID, variant] = key.split("\0")
+    return { ...modelValues(providerID, modelID, value), ...(variant ? { variant } : {}) }
+  })
+  const modelGroupRows: ModelGroupMetrics[] = [...modelGroups.entries()].map(([key, value]) => {
+    const [providerID, modelID] = key.split("\0")
+    const variants = modelRows
+      .filter((model) => model.providerID === providerID && model.modelID === modelID)
+      .sort((a, b) => (a.variant ?? "").localeCompare(b.variant ?? ""))
+    return { ...modelValues(providerID, modelID, value), variants }
   })
 
   const prRows: PullRequestMetrics[] = data.pullRequests
@@ -342,6 +359,7 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
     unassigned: finish(unassigned),
     projects: projectRows.sort(byCost),
     models: modelRows.sort(byCost),
+    modelGroups: modelGroupRows.sort(byCost),
     pullRequests: prRows.sort(byCost),
     days: dayRows.sort((a, b) => a.date.localeCompare(b.date)),
   }

@@ -87,6 +87,24 @@ test("explicit exclusion prevents branch attribution", () => {
   assert.equal(report.unassigned.cost, 0.2)
 })
 
+test("model groups combine efforts while deduplicating sessions", () => {
+  const normal = usage("u1", "s1", "p1", "feature", 0.1)
+  const high = { ...normal, id: "u2", cost: 0.2, model: { ...normal.model, variant: "high" } }
+  const otherSession = { ...high, id: "u3", sessionID: "s2", cost: 0.3 }
+  const report = aggregate({ ...empty, usage: [normal, high, otherSession] })
+  assert.equal(report.models.length, 2)
+  assert.equal(report.modelGroups.length, 1)
+  const group = report.modelGroups[0]
+  assert.equal(group.providerID, normal.model.providerID)
+  assert.equal(group.modelID, normal.model.id)
+  assert.equal(group.steps, 3)
+  assert.equal(group.sessions, 2, "two efforts in one session count as one grouped session")
+  assert.ok(Math.abs(group.cost - 0.6) < 1e-12)
+  assert.deepEqual(group.variants.map((variant) => variant.variant), ["default", "high"])
+  assert.equal(group.variants[0].steps, 1)
+  assert.equal(group.variants[1].steps, 2)
+})
+
 test("reports contain strict JSON values even when model variants are absent", () => {
   const record = usage("u1", "s1", "p1", "feature", 0.2)
   delete record.model.variant

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-11-13
+
+Model grouping and provider filters.
+
+- Combine each provider/model into one cost and token summary row.
+- Expand grouped rows to inspect default, high, max, and other effort variants.
+- Deduplicate sessions across effort variants in grouped totals.
+- Add a Desktop provider dropdown and CLI `--provider` filter.
+- Display all USD values with exactly two decimal places while retaining raw JSON precision.
+- Preserve per-variant rows in `models` and add grouped `modelGroups` to JSON reports.
+
 ## 0.2.0 — 2026-11-12
 
 Public API-equivalent pricing update.

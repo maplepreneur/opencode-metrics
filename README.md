@@ -68,7 +68,7 @@ In OpenCode Desktop, open a session's side panel and choose **Metrics**, or run 
 - **Export** downloads the raw local metrics as JSON.
 - **Save override** assigns the current session to a PR or excludes it from automatic attribution.
 
-The dashboard has Overview, Models, Projects, and Pull requests tabs, plus 7/30/90-day and all-time ranges.
+The dashboard has Overview, Models, Projects, and Pull requests tabs, plus 7/30/90-day and all-time ranges. Models are grouped by provider/model with expandable effort types (default, high, max, and others), and the provider dropdown filters the grouped rows. Grouped session totals are deduplicated across efforts.
 
 ## CLI
 
@@ -82,7 +82,7 @@ opencode-metrics report --all
 Commands:
 
 ```text
-opencode-metrics report [--days 30 | --all] [--project ID] [--json]
+opencode-metrics report [--days 30 | --all] [--project ID] [--provider ID] [--json]
 opencode-metrics prices
 opencode-metrics sync [--all] [--directory PATH] [--no-diffs]
 opencode-metrics discover [--directory PATH] [--session ID] [--limit 100]
@@ -103,6 +103,9 @@ opencode-metrics prices
 
 # Aggregate JSON for automation
 opencode-metrics report --days 30 --json
+
+# Grouped model summaries for one provider
+opencode-metrics report --all --provider kimi-code-plan-global
 
 # Discover GitHub PRs, then correct one session's attribution
 opencode-metrics discover --directory /work/my-project
@@ -148,7 +151,7 @@ Kimi subscription aliases include:
 
 The `kimi-code-plan-cn` provider uses `moonshotai-cn` prices instead. For example, the global K3.1 Pro snapshot values regular input at $2/M, output at $10/M, cache reads at $0.20/M, and cache writes at $2/M. Rates can change; use the refresh action and inspect the model's pricing source.
 
-Explicit `prices` overrides take precedence over public API and OpenCode catalog prices.
+Explicit `prices` overrides take precedence over public API and OpenCode catalog prices. Desktop and CLI currency values display exactly two decimal places; raw JSON retains full numeric precision.
 
 Price overrides use USD per million tokens and the key `providerID/modelID`:
 

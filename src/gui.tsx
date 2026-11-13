@@ -4,7 +4,7 @@ import { MetricsRpc } from "./rpc.js"
 import type { PricingStatus } from "./pricing.js"
 import type { ExportData, Metrics, Report, SyncResult } from "./types.js"
 
-const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 })
+const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 
 function usd(value: number): string {
@@ -52,6 +52,8 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
   const [message, setMessage] = createSignal("")
   const [failure, setFailure] = createSignal("")
   const [assignment, setAssignment] = createSignal("")
+  const [providerFilter, setProviderFilter] = createSignal("all")
+  const [expandedModels, setExpandedModels] = createSignal<Record<string, boolean>>({})
   let timer: ReturnType<typeof setTimeout> | undefined
 
   async function load(): Promise<void> {
@@ -63,6 +65,9 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
       ])
       setReport(result)
       setPricing(priceStatus)
+      if (providerFilter() !== "all" && !result.modelGroups.some((model) => model.providerID === providerFilter())) {
+        setProviderFilter("all")
+      }
       setFailure("")
     } catch (cause) {
       setFailure(cause instanceof Error ? cause.message : String(cause))
@@ -131,6 +136,18 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
     })
   }
 
+  function modelGroups() {
+    return report()?.modelGroups.filter((model) => providerFilter() === "all" || model.providerID === providerFilter()) ?? []
+  }
+
+  function providers() {
+    return [...new Set(report()?.modelGroups.map((model) => model.providerID) ?? [])].sort()
+  }
+
+  function toggleModel(key: string): void {
+    setExpandedModels((current) => ({ ...current, [key]: !current[key] }))
+  }
+
   onMount(() => {
     void load()
     const unsubscribe = ctx.client.rpc(MetricsRpc).events.on("changed", scheduleLoad)
@@ -180,8 +197,28 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
             </section>
           </Show>
           <Show when={tab() === "models"}>
+            <div class="ocm-model-filter">
+              <label>Provider <select value={providerFilter()} onChange={(event) => setProviderFilter(event.currentTarget.value)}>
+                <option value="all">All providers</option>
+                <For each={providers()}>{(provider) => <option value={provider}>{provider}</option>}</For>
+              </select></label>
+              <span>{modelGroups().length} {modelGroups().length === 1 ? "model" : "models"}</span>
+            </div>
             <div class="ocm-table"><table><thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Reasoning</th><th>Cache read</th><th>Cost</th></tr></thead>
-              <tbody><For each={data().models} fallback={<Empty columns={7} text="No model usage" />}>{(model) => <tr><td><strong>{model.providerID}/{model.modelID}</strong><small>{model.variant ?? "default variant"}{model.pricingSources.length ? ` · ${model.pricingSources.join(", ")}` : " · no public API price match"}</small></td><td>{num(model.steps)}</td><td>{num(model.inputTokens)}</td><td>{num(model.outputTokens)}</td><td>{num(model.reasoningTokens)}</td><td>{num(model.cacheReadTokens)}</td><td>{usd(model.cost)}</td></tr>}</For></tbody>
+              <tbody><For each={modelGroups()} fallback={<Empty columns={7} text="No model usage for this provider" />}>{(group) => {
+                const key = `${group.providerID}/${group.modelID}`
+                const expanded = () => !!expandedModels()[key]
+                return <>
+                  <tr class="ocm-model-group">
+                    <td><button class="ocm-expand" aria-expanded={expanded()} aria-label={`${expanded() ? "Hide" : "Show"} effort types for ${key}`} onClick={() => toggleModel(key)}>{expanded() ? "▾" : "▸"}</button><strong>{key}</strong><small>{group.variants.length} {group.variants.length === 1 ? "effort type" : "effort types"}{group.pricingSources.length ? ` · ${group.pricingSources.join(", ")}` : " · no public API price match"}</small></td>
+                    <td>{num(group.steps)}</td><td>{num(group.inputTokens)}</td><td>{num(group.outputTokens)}</td><td>{num(group.reasoningTokens)}</td><td>{num(group.cacheReadTokens)}</td><td>{usd(group.cost)}</td>
+                  </tr>
+                  <Show when={expanded()}><For each={group.variants}>{(variant) => <tr class="ocm-variant">
+                    <td><span>Effort: <strong>{variant.variant ?? "default"}</strong></span><small>{variant.pricingSources.join(", ") || "no public API price match"}</small></td>
+                    <td>{num(variant.steps)}</td><td>{num(variant.inputTokens)}</td><td>{num(variant.outputTokens)}</td><td>{num(variant.reasoningTokens)}</td><td>{num(variant.cacheReadTokens)}</td><td>{usd(variant.cost)}</td>
+                  </tr>}</For></Show>
+                </>
+              }}</For></tbody>
             </table></div>
           </Show>
           <Show when={tab() === "projects"}>
@@ -269,4 +306,9 @@ const css = `
 .ocm-notice, .ocm-error { padding: 8px; border-radius: 5px; margin: 8px 0; background: color-mix(in srgb, currentColor 7%, transparent); }
 .ocm-error { border: 1px solid #d66; } .ocm-unassigned { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 10px; border: 1px dashed color-mix(in srgb, currentColor 20%, transparent); border-radius: 6px; }
 .ocm-assignment { margin-bottom: 12px; } .ocm-assignment label { display: flex; gap: 7px; align-items: center; }
+.ocm-model-filter { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.ocm-model-filter label { display: flex; align-items: center; gap: 7px; } .ocm-model-filter span { opacity: .6; }
+.ocm .ocm-expand { width: 24px; margin-right: 5px; padding: 1px 4px; font-size: 15px; line-height: 1.2; }
+.ocm-variant { background: color-mix(in srgb, currentColor 3%, transparent); }
+.ocm-variant td:first-child { padding-left: 37px; } .ocm-variant td { opacity: .82; }
 `

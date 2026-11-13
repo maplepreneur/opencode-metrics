@@ -136,6 +136,10 @@ export interface ModelMetrics {
   pricingSources: string[]
 }
 
+export interface ModelGroupMetrics extends Omit<ModelMetrics, "variant"> {
+  variants: ModelMetrics[]
+}
+
 export interface PullRequestMetrics extends Metrics {
   pr: PullRequestRecord
   attribution: "branch" | "manual" | "mixed" | "none"
@@ -159,6 +163,7 @@ export interface Report {
   unassigned: Metrics
   projects: ProjectMetrics[]
   models: ModelMetrics[]
+  modelGroups: ModelGroupMetrics[]
   pullRequests: PullRequestMetrics[]
   days: DayMetrics[]
 }
