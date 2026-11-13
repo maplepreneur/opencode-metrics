@@ -4,6 +4,9 @@ import { verifyPrCost } from "../dist/pr-verification.js"
 
 const row = {
   pr: { number: 42, title: "Feature", url: "https://example.test/pr/42" },
+  projectName: "shop",
+  projectDirectory: "/work/shop",
+  models: [],
   cost: 12.34,
   linesChanged: 100,
   costPerLine: 0.1234,
@@ -20,6 +23,12 @@ test("PR verification returns visible cost and line metrics", () => {
 test("PR verification rejects missing and zero-cost PRs", () => {
   assert.throws(() => verifyPrCost({ pullRequests: [] }, 42), /absent.*discovery/)
   assert.throws(() => verifyPrCost({ pullRequests: [{ ...row, cost: 0 }] }, 42), /no attributed AI cost/)
+})
+
+test("PR verification validates per-model cost totals", () => {
+  const models = [{ cost: 10 }, { cost: 2.34 }]
+  assert.equal(verifyPrCost({ pullRequests: [{ ...row, models }] }, 42).models.length, 2)
+  assert.throws(() => verifyPrCost({ pullRequests: [{ ...row, models: [{ cost: 1 }] }] }, 42), /model costs do not add up/)
 })
 
 test("PR verification rejects inconsistent cost-per-line output", () => {

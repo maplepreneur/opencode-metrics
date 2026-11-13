@@ -22,9 +22,14 @@ try {
   const row = verifyPrCost(report, number)
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
   console.log(`PASS: PR #${number} ${row.pr.title}`)
+  console.log(`Project: ${row.projectName} (${row.projectDirectory})`)
   console.log(`Effective AI cost: ${usd.format(row.cost)}`)
   console.log(`Attributed sessions: ${row.sessions}; model calls: ${row.steps}`)
   console.log(`AI lines changed: ${row.linesChanged}; cost per line: ${row.costPerLine === null ? "—" : usd.format(row.costPerLine)}`)
+  if (row.models.length > 0) {
+    const top = [...row.models].sort((a, b) => b.cost - a.cost)[0]
+    console.log(`Top model: ${top.providerID}/${top.modelID} · ${usd.format(top.cost)} · ${top.steps} calls`)
+  }
   console.log(`Attribution: ${row.attribution}; source: ${row.pr.url}`)
 } catch (cause) {
   console.error(`FAIL: ${cause instanceof Error ? cause.message : String(cause)}`)

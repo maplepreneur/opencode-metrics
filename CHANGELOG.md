@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 — 2026-11-13
+
+Project and PR drill-down analysis.
+
+- Show project names and directories in the Pull requests table and CLI.
+- Click a project to inspect its PR costs, most-used/highest-cost models, tokens, and lines.
+- Expand a PR to inspect model and effort costs, calls, tokens, and sessions.
+- Validate that per-model costs sum to each PR's total in `verify:pr`.
+
 ## 0.3.2 — 2026-11-13
 
 PR cost verification.

@@ -73,7 +73,7 @@ function report() {
   table(["Project", "Sessions", "Lines", "Cost", "Cost/line"], data.projects.map((p) => [p.name, p.sessions, number(p.linesChanged), money(p.cost), ratio(p.costPerLine)]))
   if (data.pullRequests.length) {
     console.log()
-    table(["PR", "Attribution", "AI lines", "Cost", "Cost/line"], data.pullRequests.map((p) => [`#${p.pr.number} ${p.pr.title}`, p.attribution, number(p.linesChanged), money(p.cost), ratio(p.costPerLine)]))
+    table(["Project", "PR", "Attribution", "AI lines", "Cost", "Cost/line"], data.pullRequests.map((p) => [p.projectName, `#${p.pr.number} ${p.pr.title}`, p.attribution, number(p.linesChanged), money(p.cost), ratio(p.costPerLine)]))
   }
 }
 

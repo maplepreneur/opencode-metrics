@@ -70,6 +70,8 @@ In OpenCode Desktop, open a session's side panel and choose **Metrics**, or run 
 
 The dashboard has Overview, Models, Projects, and Pull requests tabs, plus 7/30/90-day and all-time ranges. Models are grouped by provider/model with expandable effort types (default, high, max, and others), and the provider dropdown filters the grouped rows. Grouped session totals are deduplicated across efforts. Click any table header to sort ascending/descending; each tab remembers its own sort column and direction.
 
+Click a project to drill into its PR costs, most-used/highest-cost models, tokens, and lines. Pull request rows show their project and expand to reveal per-model and per-effort costs, calls, tokens, and sessions. CLI PR tables and `verify:pr` output include the project and top model as well.
+
 ## CLI
 
 For a source checkout, either run `node bin/opencode-metrics.js` from the checkout or link the binary:
