@@ -1,6 +1,6 @@
 {
   "name": "opencode-metrics",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Local, provider-neutral usage, cost, LOC, and PR analytics for OpenCode and OpenCode Desktop",
   "type": "module",
   "license": "MIT",
@@ -52,6 +52,7 @@
     "build": "tsc -p tsconfig.build.json && vite build",
     "typecheck": "tsc -p tsconfig.json",
     "pricing:update": "node scripts/update-pricing.mjs",
+    "verify:pr": "node scripts/verify-pr-cost.mjs",
     "test": "npm run build && node --test test/*.test.js",
     "prepublishOnly": "npm test"
   },

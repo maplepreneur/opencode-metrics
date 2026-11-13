@@ -199,6 +199,15 @@ A manual session assignment overrides branch matching. An explicit exclusion pre
 
 GitHub line counts and AI session line counts are shown separately: they measure different things.
 
+To verify a real PR's visible cost end to end, sync on its head branch, discover PRs, then run:
+
+```bash
+npm run build
+npm run verify:pr -- --pr 42 --directory /path/to/checkout
+```
+
+The command fails when the PR is absent, has no attributed cost, or has inconsistent cost-per-line output. It prints effective cost, attributed sessions/calls, changed lines, and attribution type.
+
 ## Collection behavior
 
 - Assistant usage is imported from persisted messages and refreshed on public session events.

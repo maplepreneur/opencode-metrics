@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — 2026-11-13
+
+PR cost verification.
+
+- Add `npm run verify:pr -- --pr NUMBER` for end-to-end PR cost checks.
+- Validate PR presence, nonzero attributed cost, and cost-per-line consistency.
+- Report attributed sessions, model calls, changed lines, and branch/manual attribution.
+
 ## 0.3.1 — 2026-11-13
 
 Desktop table usability fixes.
