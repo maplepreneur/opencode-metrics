@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-11-13
+
+Desktop table usability fixes.
+
+- Add ascending/descending sort controls to Daily, Models, Projects, and Pull requests tables.
+- Sort expanded effort rows with their parent Models table.
+- Fix unreadable native dropdown options in dark mode.
+
 ## 0.3.0 — 2026-11-13
 
 Model grouping and provider filters.

@@ -1,6 +1,7 @@
 import { Command, MenuItem, Panel, Plugin, usePlugin, type PanelTab } from "@opencode/plugin/gui"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { MetricsRpc } from "./rpc.js"
+import { nextSort, sortRows as orderRows } from "./sort.js"
 import type { PricingStatus } from "./pricing.js"
 import type { ExportData, Metrics, Report, SyncResult } from "./types.js"
 
@@ -54,6 +55,7 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
   const [assignment, setAssignment] = createSignal("")
   const [providerFilter, setProviderFilter] = createSignal("all")
   const [expandedModels, setExpandedModels] = createSignal<Record<string, boolean>>({})
+  const [sorts, setSorts] = createSignal<Record<string, { key: string; direction: "asc" | "desc" }>>({})
   let timer: ReturnType<typeof setTimeout> | undefined
 
   async function load(): Promise<void> {
@@ -136,8 +138,50 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
     })
   }
 
+  function field(row: unknown, key: string): string | number | null {
+    const value = (row as Record<string, unknown>)[key]
+    return typeof value === "string" || typeof value === "number" || value === null ? value : null
+  }
+
+  function sortRows<Row>(table: string, rows: Row[], value: (row: Row, key: string) => string | number | null): Row[] {
+    return orderRows(rows, sorts()[table], value)
+  }
+
+  function toggleSort(table: string, key: string): void {
+    setSorts((currentSorts) => ({ ...currentSorts, [table]: nextSort(currentSorts[table], key) }))
+  }
+
+  function sortHeader(table: string, key: string, label: string) {
+    const sort = sorts()[table]
+    const active = sort?.key === key
+    return <button class="ocm-sort" onClick={() => toggleSort(table, key)} aria-label={`Sort by ${label}${active ? `, ${sort.direction === "asc" ? "ascending" : "descending"}` : ""}`}>
+      {label}<span>{active ? (sort.direction === "asc" ? " ▲" : " ▼") : " ↕"}</span>
+    </button>
+  }
+
   function modelGroups() {
-    return report()?.modelGroups.filter((model) => providerFilter() === "all" || model.providerID === providerFilter()) ?? []
+    const filtered = report()?.modelGroups.filter((model) => providerFilter() === "all" || model.providerID === providerFilter()) ?? []
+    return sortRows("models", filtered, (model, key) => key === "name" ? `${model.providerID}/${model.modelID}` : field(model, key))
+  }
+
+  function dailyRows() {
+    const rows = report()?.days ?? []
+    const sorted = sorts().daily
+      ? sortRows("daily", rows, (day, key) => field(day, key))
+      : [...rows].reverse()
+    return sorted.slice(0, 14)
+  }
+
+  function projectRows() {
+    return sortRows("projects", report()?.projects ?? [], (project, key) => field(project, key))
+  }
+
+  function pullRequestRows() {
+    return sortRows("prs", report()?.pullRequests ?? [], (row, key) => {
+      if (key === "title") return row.pr.title
+      if (key === "githubLinesChanged") return row.githubLinesAdded + row.githubLinesDeleted
+      return field(row, key)
+    })
   }
 
   function providers() {
@@ -189,8 +233,8 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
           <Show when={tab() === "overview"}>
             <section>
               <h3>Daily activity</h3>
-              <div class="ocm-table"><table><thead><tr><th>Date</th><th>Sessions</th><th>Input</th><th>Output</th><th>Lines</th><th>Cost</th><th>Cost / line</th></tr></thead>
-                <tbody><For each={[...data().days].reverse().slice(0, 14)} fallback={<Empty columns={7} text="No usage in this range" />}>{(day) => <tr><td>{day.date}</td><td>{num(day.sessions)}</td><td>{num(day.inputTokens)}</td><td>{num(day.outputTokens)}</td><td>{num(day.linesChanged)}</td><td>{usd(day.cost)}</td><td>{perLine(day.costPerLine)}</td></tr>}</For></tbody>
+              <div class="ocm-table"><table><thead><tr><th>{sortHeader("daily", "date", "Date")}</th><th>{sortHeader("daily", "sessions", "Sessions")}</th><th>{sortHeader("daily", "inputTokens", "Input")}</th><th>{sortHeader("daily", "outputTokens", "Output")}</th><th>{sortHeader("daily", "linesChanged", "Lines")}</th><th>{sortHeader("daily", "cost", "Cost")}</th><th>{sortHeader("daily", "costPerLine", "Cost / line")}</th></tr></thead>
+                <tbody><For each={dailyRows()} fallback={<Empty columns={7} text="No usage in this range" />}>{(day) => <tr><td>{day.date}</td><td>{num(day.sessions)}</td><td>{num(day.inputTokens)}</td><td>{num(day.outputTokens)}</td><td>{num(day.linesChanged)}</td><td>{usd(day.cost)}</td><td>{perLine(day.costPerLine)}</td></tr>}</For></tbody>
               </table></div>
               <div class="ocm-unassigned"><strong>Unassigned to a PR</strong><span>{usd(data().unassigned.cost)} · {num(data().unassigned.linesChanged)} lines · {num(data().unassigned.sessions)} sessions</span></div>
               <p class="ocm-note">Effective cost uses OpenCode's reported cost, falling back to public API-equivalent or configured estimates only when reported cost is zero. Public API estimates value subscription and free usage at list token rates; they are not invoices. Token total excludes cache to avoid presenting cached input as fresh input.</p>
@@ -204,7 +248,7 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
               </select></label>
               <span>{modelGroups().length} {modelGroups().length === 1 ? "model" : "models"}</span>
             </div>
-            <div class="ocm-table"><table><thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Reasoning</th><th>Cache read</th><th>Cost</th></tr></thead>
+            <div class="ocm-table"><table><thead><tr><th>{sortHeader("models", "name", "Provider / model")}</th><th>{sortHeader("models", "steps", "Calls")}</th><th>{sortHeader("models", "inputTokens", "Input")}</th><th>{sortHeader("models", "outputTokens", "Output")}</th><th>{sortHeader("models", "reasoningTokens", "Reasoning")}</th><th>{sortHeader("models", "cacheReadTokens", "Cache read")}</th><th>{sortHeader("models", "cost", "Cost")}</th></tr></thead>
               <tbody><For each={modelGroups()} fallback={<Empty columns={7} text="No model usage for this provider" />}>{(group) => {
                 const key = `${group.providerID}/${group.modelID}`
                 const expanded = () => !!expandedModels()[key]
@@ -213,7 +257,7 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
                     <td><button class="ocm-expand" aria-expanded={expanded()} aria-label={`${expanded() ? "Hide" : "Show"} effort types for ${key}`} onClick={() => toggleModel(key)}>{expanded() ? "▾" : "▸"}</button><strong>{key}</strong><small>{group.variants.length} {group.variants.length === 1 ? "effort type" : "effort types"}{group.pricingSources.length ? ` · ${group.pricingSources.join(", ")}` : " · no public API price match"}</small></td>
                     <td>{num(group.steps)}</td><td>{num(group.inputTokens)}</td><td>{num(group.outputTokens)}</td><td>{num(group.reasoningTokens)}</td><td>{num(group.cacheReadTokens)}</td><td>{usd(group.cost)}</td>
                   </tr>
-                  <Show when={expanded()}><For each={group.variants}>{(variant) => <tr class="ocm-variant">
+                  <Show when={expanded()}><For each={sortRows("models", group.variants, (variant, key) => key === "name" ? (variant.variant ?? "default") : field(variant, key))}>{(variant) => <tr class="ocm-variant">
                     <td><span>Effort: <strong>{variant.variant ?? "default"}</strong></span><small>{variant.pricingSources.join(", ") || "no public API price match"}</small></td>
                     <td>{num(variant.steps)}</td><td>{num(variant.inputTokens)}</td><td>{num(variant.outputTokens)}</td><td>{num(variant.reasoningTokens)}</td><td>{num(variant.cacheReadTokens)}</td><td>{usd(variant.cost)}</td>
                   </tr>}</For></Show>
@@ -222,8 +266,8 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
             </table></div>
           </Show>
           <Show when={tab() === "projects"}>
-            <div class="ocm-table"><table><thead><tr><th>Project</th><th>Sessions</th><th>Tokens</th><th>Lines +/−</th><th>Cost</th><th>Cost / line</th></tr></thead>
-              <tbody><For each={data().projects} fallback={<Empty columns={6} text="No projects" />}>{(project) => <tr><td><strong>{project.name}</strong><small>{project.directory}</small></td><td>{num(project.sessions)}</td><td>{num(project.totalTokens)}</td><td>+{num(project.linesAdded)} / −{num(project.linesDeleted)}</td><td>{usd(project.cost)}</td><td>{perLine(project.costPerLine)}</td></tr>}</For></tbody>
+            <div class="ocm-table"><table><thead><tr><th>{sortHeader("projects", "name", "Project")}</th><th>{sortHeader("projects", "sessions", "Sessions")}</th><th>{sortHeader("projects", "totalTokens", "Tokens")}</th><th>{sortHeader("projects", "linesChanged", "Lines +/−")}</th><th>{sortHeader("projects", "cost", "Cost")}</th><th>{sortHeader("projects", "costPerLine", "Cost / line")}</th></tr></thead>
+              <tbody><For each={projectRows()} fallback={<Empty columns={6} text="No projects" />}>{(project) => <tr><td><strong>{project.name}</strong><small>{project.directory}</small></td><td>{num(project.sessions)}</td><td>{num(project.totalTokens)}</td><td>+{num(project.linesAdded)} / −{num(project.linesDeleted)}</td><td>{usd(project.cost)}</td><td>{perLine(project.costPerLine)}</td></tr>}</For></tbody>
             </table></div>
           </Show>
           <Show when={tab() === "prs"}>
@@ -234,8 +278,8 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
               </select></label>
               <button disabled={!!busy()} onClick={() => void assign()}>Save override</button>
             </div>
-            <div class="ocm-table"><table><thead><tr><th>PR</th><th>Branch</th><th>Attribution</th><th>AI lines</th><th>GitHub lines</th><th>Cost</th><th>Cost / line</th></tr></thead>
-              <tbody><For each={data().pullRequests} fallback={<Empty columns={7} text="Discover PRs to begin branch attribution" />}>{(row) => <tr><td><a href={row.pr.url} target="_blank" rel="noreferrer">#{row.pr.number} {row.pr.title}</a><small>{row.pr.state}</small></td><td>{row.pr.branch}</td><td>{row.attribution}</td><td>{num(row.linesChanged)}</td><td>+{num(row.githubLinesAdded)} / −{num(row.githubLinesDeleted)}</td><td>{usd(row.cost)}</td><td>{perLine(row.costPerLine)}</td></tr>}</For></tbody>
+            <div class="ocm-table"><table><thead><tr><th>{sortHeader("prs", "title", "PR")}</th><th>{sortHeader("prs", "branch", "Branch")}</th><th>{sortHeader("prs", "attribution", "Attribution")}</th><th>{sortHeader("prs", "linesChanged", "AI lines")}</th><th>{sortHeader("prs", "githubLinesChanged", "GitHub lines")}</th><th>{sortHeader("prs", "cost", "Cost")}</th><th>{sortHeader("prs", "costPerLine", "Cost / line")}</th></tr></thead>
+              <tbody><For each={pullRequestRows()} fallback={<Empty columns={7} text="Discover PRs to begin branch attribution" />}>{(row) => <tr><td><a href={row.pr.url} target="_blank" rel="noreferrer">#{row.pr.number} {row.pr.title}</a><small>{row.pr.state}</small></td><td>{row.pr.branch}</td><td>{row.attribution}</td><td>{num(row.linesChanged)}</td><td>+{num(row.githubLinesAdded)} / −{num(row.githubLinesDeleted)}</td><td>{usd(row.cost)}</td><td>{perLine(row.costPerLine)}</td></tr>}</For></tbody>
             </table></div>
           </Show>
         </>}
@@ -291,6 +335,14 @@ const css = `
 .ocm-actions, .ocm-toolbar, .ocm-tabs, .ocm-assignment { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ocm button, .ocm select { font: inherit; color: inherit; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); background: color-mix(in srgb, currentColor 5%, transparent); border-radius: 5px; padding: 5px 8px; }
 .ocm button { cursor: pointer; } .ocm button:disabled { opacity: .45; cursor: wait; }
+.ocm select { color-scheme: light dark; }
+.ocm select option { background: Canvas; color: CanvasText; }
+@media (prefers-color-scheme: dark) {
+  .ocm select { color-scheme: dark; }
+  .ocm select option { background: #202521; color: #f5f5f5; }
+}
+.ocm th button.ocm-sort { border: 0; background: none; padding: 0; font: inherit; font-weight: 500; color: inherit; white-space: nowrap; }
+.ocm th button.ocm-sort span { opacity: .65; font-size: 10px; }
 .ocm-toolbar { justify-content: space-between; margin: 12px 0; opacity: .75; }
 .ocm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; }
 .ocm-card { border: 1px solid color-mix(in srgb, currentColor 12%, transparent); border-radius: 7px; padding: 10px; min-width: 0; }

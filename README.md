@@ -68,7 +68,7 @@ In OpenCode Desktop, open a session's side panel and choose **Metrics**, or run 
 - **Export** downloads the raw local metrics as JSON.
 - **Save override** assigns the current session to a PR or excludes it from automatic attribution.
 
-The dashboard has Overview, Models, Projects, and Pull requests tabs, plus 7/30/90-day and all-time ranges. Models are grouped by provider/model with expandable effort types (default, high, max, and others), and the provider dropdown filters the grouped rows. Grouped session totals are deduplicated across efforts.
+The dashboard has Overview, Models, Projects, and Pull requests tabs, plus 7/30/90-day and all-time ranges. Models are grouped by provider/model with expandable effort types (default, high, max, and others), and the provider dropdown filters the grouped rows. Grouped session totals are deduplicated across efforts. Click any table header to sort ascending/descending; each tab remembers its own sort column and direction.
 
 ## CLI
 
