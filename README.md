@@ -70,6 +70,8 @@ In OpenCode Desktop, open a session's side panel and choose **Metrics**, or run 
 
 The dashboard has Overview, Models, Projects, and Pull requests tabs, plus 7/30/90-day and all-time ranges. Models are grouped by provider/model with expandable effort types (default, high, max, and others), and the provider dropdown filters the grouped rows. Grouped session totals are deduplicated across efforts. Click any table header to sort ascending/descending; each tab remembers its own sort column and direction.
 
+Click a project to drill into its PR costs, most-used/highest-cost models, tokens, and lines. Pull request rows show their project and expand to reveal per-model and per-effort costs, calls, tokens, and sessions. CLI PR tables and `verify:pr` output include the project and top model as well.
+
 ## CLI
 
 For a source checkout, either run `node bin/opencode-metrics.js` from the checkout or link the binary:
@@ -198,6 +200,15 @@ When the CLI/turn diff is unavailable, the plugin falls back to `FileDiff` metad
 A manual session assignment overrides branch matching. An explicit exclusion prevents automatic attribution. PR rows identify `branch`, `manual`, `mixed`, or `none` attribution. Unassigned cost and lines remain visible and are never dropped from global totals.
 
 GitHub line counts and AI session line counts are shown separately: they measure different things.
+
+To verify a real PR's visible cost end to end, sync on its head branch, discover PRs, then run:
+
+```bash
+npm run build
+npm run verify:pr -- --pr 42 --directory /path/to/checkout
+```
+
+The command fails when the PR is absent, has no attributed cost, or has inconsistent cost-per-line output. It prints effective cost, attributed sessions/calls, changed lines, and attribution type.
 
 ## Collection behavior
 

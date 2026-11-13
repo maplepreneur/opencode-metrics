@@ -3,7 +3,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { MetricsRpc } from "./rpc.js"
 import { nextSort, sortRows as orderRows } from "./sort.js"
 import type { PricingStatus } from "./pricing.js"
-import type { ExportData, Metrics, Report, SyncResult } from "./types.js"
+import type { ExportData, Metrics, ModelGroupMetrics, Report, SyncResult } from "./types.js"
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
@@ -43,6 +43,17 @@ function MetricCards(props: { metrics: Metrics }) {
   )
 }
 
+function ModelBreakdown(props: { models: ModelGroupMetrics[] }) {
+  return <div class="ocm-breakdown">
+    <strong class="ocm-breakdown-title">Models used</strong>
+    <For each={props.models} fallback={<span class="ocm-muted">No model usage attributed</span>}>{(model) => <div class="ocm-breakdown-model">
+      <div class="ocm-breakdown-heading"><strong>{model.providerID}/{model.modelID}</strong><strong>{usd(model.cost)}</strong></div>
+      <small>{num(model.steps)} calls · {num(model.inputTokens)} input · {num(model.outputTokens)} output · {num(model.reasoningTokens)} reasoning · {num(model.sessions)} sessions</small>
+      <div class="ocm-efforts"><For each={model.variants}>{(variant) => <span>{variant.variant ?? "default"}: {usd(variant.cost)} · {num(variant.steps)} calls</span>}</For></div>
+    </div>}</For>
+  </div>
+}
+
 function Dashboard(props: { session: { id: string; directory: string } }) {
   const ctx = usePlugin()
   const [report, setReport] = createSignal<Report>()
@@ -56,6 +67,10 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
   const [providerFilter, setProviderFilter] = createSignal("all")
   const [expandedModels, setExpandedModels] = createSignal<Record<string, boolean>>({})
   const [sorts, setSorts] = createSignal<Record<string, { key: string; direction: "asc" | "desc" }>>({})
+  const [selectedProject, setSelectedProject] = createSignal("")
+  const [projectDetail, setProjectDetail] = createSignal<Report>()
+  const [detailBusy, setDetailBusy] = createSignal(false)
+  const [expandedPR, setExpandedPR] = createSignal("")
   let timer: ReturnType<typeof setTimeout> | undefined
 
   async function load(): Promise<void> {
@@ -67,6 +82,7 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
       ])
       setReport(result)
       setPricing(priceStatus)
+      if (selectedProject()) void openProject(selectedProject())
       if (providerFilter() !== "all" && !result.modelGroups.some((model) => model.providerID === providerFilter())) {
         setProviderFilter("all")
       }
@@ -192,6 +208,37 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
     setExpandedModels((current) => ({ ...current, [key]: !current[key] }))
   }
 
+  function togglePR(key: string): void {
+    setExpandedPR((current) => current === key ? "" : key)
+  }
+
+  async function openProject(projectID: string): Promise<void> {
+    setSelectedProject(projectID)
+    setProjectDetail(undefined)
+    setExpandedPR("")
+    setDetailBusy(true)
+    try {
+      const dayCount = days()
+      const result = await ctx.client.rpc(MetricsRpc).report({
+        projectID,
+        from: dayCount ? Date.now() - dayCount * 86_400_000 : undefined,
+      }) as Report
+      setProjectDetail(result)
+    } catch (cause) {
+      setFailure(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setDetailBusy(false)
+    }
+  }
+
+  function mostUsed(report: Report): ModelGroupMetrics | undefined {
+    return [...report.modelGroups].sort((a, b) => b.steps - a.steps)[0]
+  }
+
+  function highestCost(report: Report): ModelGroupMetrics | undefined {
+    return [...report.modelGroups].sort((a, b) => b.cost - a.cost)[0]
+  }
+
   onMount(() => {
     void load()
     const unsubscribe = ctx.client.rpc(MetricsRpc).events.on("changed", scheduleLoad)
@@ -266,20 +313,44 @@ function Dashboard(props: { session: { id: string; directory: string } }) {
             </table></div>
           </Show>
           <Show when={tab() === "projects"}>
+            <Show when={selectedProject()}>
+              <section class="ocm-detail">
+                <div class="ocm-detail-header"><h3>Project drill-down</h3><button onClick={() => { setSelectedProject(""); setProjectDetail(undefined) }}>Close</button></div>
+                <Show when={detailBusy()}><p class="ocm-muted">Loading project details…</p></Show>
+                <Show when={projectDetail()}>{(detail) => <>
+                  <h3>{detail().projects[0]?.name ?? selectedProject()}</h3><p class="ocm-note">{detail().projects[0]?.directory}</p>
+                  <MetricCards metrics={detail().totals} />
+                  <div class="ocm-model-highlights">
+                    <span>Most used: <strong>{mostUsed(detail()) ? `${mostUsed(detail())!.providerID}/${mostUsed(detail())!.modelID} (${num(mostUsed(detail())!.steps)} calls)` : "—"}</strong></span>
+                    <span>Highest cost: <strong>{highestCost(detail()) ? `${highestCost(detail())!.providerID}/${highestCost(detail())!.modelID} (${usd(highestCost(detail())!.cost)})` : "—"}</strong></span>
+                  </div>
+                  <h3>Pull requests in this project</h3>
+                  <For each={detail().pullRequests} fallback={<p class="ocm-muted">No PRs discovered for this project</p>}>{(row) => <div class="ocm-pr-detail">
+                    <button class="ocm-pr-button" aria-expanded={expandedPR() === row.pr.key} onClick={() => togglePR(row.pr.key)}>{expandedPR() === row.pr.key ? "▾" : "▸"} #{row.pr.number} {row.pr.title}<strong>{usd(row.cost)}</strong></button>
+                    <small>{row.attribution} · {num(row.sessions)} sessions · {num(row.steps)} calls · {num(row.linesChanged)} AI lines</small>
+                    <Show when={expandedPR() === row.pr.key}><ModelBreakdown models={row.models} /></Show>
+                  </div>}</For>
+                  <h3>Models in this project</h3><ModelBreakdown models={detail().modelGroups} />
+                </>}</Show>
+              </section>
+            </Show>
             <div class="ocm-table"><table><thead><tr><th>{sortHeader("projects", "name", "Project")}</th><th>{sortHeader("projects", "sessions", "Sessions")}</th><th>{sortHeader("projects", "totalTokens", "Tokens")}</th><th>{sortHeader("projects", "linesChanged", "Lines +/−")}</th><th>{sortHeader("projects", "cost", "Cost")}</th><th>{sortHeader("projects", "costPerLine", "Cost / line")}</th></tr></thead>
-              <tbody><For each={projectRows()} fallback={<Empty columns={6} text="No projects" />}>{(project) => <tr><td><strong>{project.name}</strong><small>{project.directory}</small></td><td>{num(project.sessions)}</td><td>{num(project.totalTokens)}</td><td>+{num(project.linesAdded)} / −{num(project.linesDeleted)}</td><td>{usd(project.cost)}</td><td>{perLine(project.costPerLine)}</td></tr>}</For></tbody>
+              <tbody><For each={projectRows()} fallback={<Empty columns={6} text="No projects" />}>{(project) => <tr><td><button class="ocm-link" title={`Drill down into ${project.name}`} onClick={() => void openProject(project.projectID)}><strong>{project.name}</strong></button><small>{project.directory}</small></td><td>{num(project.sessions)}</td><td>{num(project.totalTokens)}</td><td>+{num(project.linesAdded)} / −{num(project.linesDeleted)}</td><td>{usd(project.cost)}</td><td>{perLine(project.costPerLine)}</td></tr>}</For></tbody>
             </table></div>
           </Show>
           <Show when={tab() === "prs"}>
             <div class="ocm-assignment">
               <label>Assign current session <select value={assignment()} onChange={(event) => setAssignment(event.currentTarget.value)}>
                 <option value="">Exclude from PR attribution</option>
-                <For each={data().pullRequests}>{(row) => <option value={row.pr.number}>#{row.pr.number} {row.pr.title}</option>}</For>
+                <For each={data().pullRequests}>{(row) => <option value={row.pr.number}>#{row.pr.number} {row.pr.title} — {row.projectName}</option>}</For>
               </select></label>
               <button disabled={!!busy()} onClick={() => void assign()}>Save override</button>
             </div>
-            <div class="ocm-table"><table><thead><tr><th>{sortHeader("prs", "title", "PR")}</th><th>{sortHeader("prs", "branch", "Branch")}</th><th>{sortHeader("prs", "attribution", "Attribution")}</th><th>{sortHeader("prs", "linesChanged", "AI lines")}</th><th>{sortHeader("prs", "githubLinesChanged", "GitHub lines")}</th><th>{sortHeader("prs", "cost", "Cost")}</th><th>{sortHeader("prs", "costPerLine", "Cost / line")}</th></tr></thead>
-              <tbody><For each={pullRequestRows()} fallback={<Empty columns={7} text="Discover PRs to begin branch attribution" />}>{(row) => <tr><td><a href={row.pr.url} target="_blank" rel="noreferrer">#{row.pr.number} {row.pr.title}</a><small>{row.pr.state}</small></td><td>{row.pr.branch}</td><td>{row.attribution}</td><td>{num(row.linesChanged)}</td><td>+{num(row.githubLinesAdded)} / −{num(row.githubLinesDeleted)}</td><td>{usd(row.cost)}</td><td>{perLine(row.costPerLine)}</td></tr>}</For></tbody>
+            <div class="ocm-table"><table><thead><tr><th>{sortHeader("prs", "projectName", "Project")}</th><th>{sortHeader("prs", "title", "PR")}</th><th>{sortHeader("prs", "branch", "Branch")}</th><th>{sortHeader("prs", "attribution", "Attribution")}</th><th>{sortHeader("prs", "linesChanged", "AI lines")}</th><th>{sortHeader("prs", "githubLinesChanged", "GitHub lines")}</th><th>{sortHeader("prs", "cost", "Cost")}</th><th>{sortHeader("prs", "costPerLine", "Cost / line")}</th></tr></thead>
+              <tbody><For each={pullRequestRows()} fallback={<Empty columns={8} text="Discover PRs to begin branch attribution" />}>{(row) => <>
+                <tr><td><strong>{row.projectName}</strong><small>{row.projectDirectory}</small></td><td><button class="ocm-link" aria-expanded={expandedPR() === row.pr.key} title="Show models used in this PR" onClick={() => togglePR(row.pr.key)}>{expandedPR() === row.pr.key ? "▾" : "▸"} #{row.pr.number} {row.pr.title}</button><small>{row.pr.state} · <a href={row.pr.url} target="_blank" rel="noreferrer">open on GitHub ↗</a></small></td><td>{row.pr.branch}</td><td>{row.attribution}</td><td>{num(row.linesChanged)}</td><td>+{num(row.githubLinesAdded)} / −{num(row.githubLinesDeleted)}</td><td>{usd(row.cost)}</td><td>{perLine(row.costPerLine)}</td></tr>
+                <Show when={expandedPR() === row.pr.key}><tr class="ocm-pr-breakdown"><td colspan={8}><ModelBreakdown models={row.models} /></td></tr></Show>
+              </>}</For></tbody>
             </table></div>
           </Show>
         </>}
@@ -363,4 +434,16 @@ const css = `
 .ocm .ocm-expand { width: 24px; margin-right: 5px; padding: 1px 4px; font-size: 15px; line-height: 1.2; }
 .ocm-variant { background: color-mix(in srgb, currentColor 3%, transparent); }
 .ocm-variant td:first-child { padding-left: 37px; } .ocm-variant td { opacity: .82; }
+.ocm .ocm-link { border: 0; background: none; padding: 0; text-align: left; text-decoration: underline; text-decoration-style: dotted; }
+.ocm-detail { border: 1px solid color-mix(in srgb, currentColor 15%, transparent); border-radius: 7px; padding: 12px; margin-bottom: 14px; }
+.ocm-detail-header, .ocm-breakdown-heading, .ocm-model-highlights { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ocm-detail-header h3 { margin: 0; } .ocm-model-highlights { justify-content: flex-start; margin: 12px 0; opacity: .8; }
+.ocm-pr-detail { border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent); padding: 8px 0; }
+.ocm .ocm-pr-button { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; background: none; padding: 3px 0; text-align: left; }
+.ocm-breakdown { padding: 8px; margin: 5px 0; border-left: 2px solid color-mix(in srgb, currentColor 20%, transparent); }
+.ocm-breakdown-title { display: block; margin-bottom: 6px; }
+.ocm-breakdown-model { padding: 7px 0; border-top: 1px solid color-mix(in srgb, currentColor 8%, transparent); }
+.ocm-breakdown-model small { display: block; opacity: .65; } .ocm-efforts { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+.ocm-efforts span { padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, currentColor 6%, transparent); opacity: .75; }
+.ocm-pr-breakdown td { background: color-mix(in srgb, currentColor 3%, transparent); }
 `

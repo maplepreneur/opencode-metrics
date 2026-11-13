@@ -3,7 +3,7 @@ export interface SortSelection {
   direction: "asc" | "desc"
 }
 
-const TEXT_COLUMNS = new Set(["name", "date", "title", "branch", "attribution"])
+const TEXT_COLUMNS = new Set(["name", "date", "title", "branch", "attribution", "projectName"])
 
 export function nextSort(current: SortSelection | undefined, key: string): SortSelection {
   if (current?.key === key) return { key, direction: current.direction === "asc" ? "desc" : "asc" }

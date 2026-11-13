@@ -218,13 +218,19 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
   const projects = new Map<string, Bucket>()
   const models = new Map<string, Bucket>()
   const modelGroups = new Map<string, Bucket>()
-  const prBuckets = new Map<string, { bucket: Bucket; manual: boolean; branch: boolean }>()
+  const prBuckets = new Map<string, {
+    bucket: Bucket
+    manual: boolean
+    branch: boolean
+    models: Map<string, Bucket>
+    variants: Map<string, Bucket>
+  }>()
   const days = new Map<string, Bucket>()
 
-  function prBucket(key: string): { bucket: Bucket; manual: boolean; branch: boolean } {
+  function prBucket(key: string): { bucket: Bucket; manual: boolean; branch: boolean; models: Map<string, Bucket>; variants: Map<string, Bucket> } {
     const existing = prBuckets.get(key)
     if (existing) return existing
-    const created = { bucket: bucket(), manual: false, branch: false }
+    const created = { bucket: bucket(), manual: false, branch: false, models: new Map<string, Bucket>(), variants: new Map<string, Bucket>() }
     prBuckets.set(key, created)
     return created
   }
@@ -259,6 +265,16 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
       addUsage(pr.bucket, record, linked.pr.key)
       pr.manual ||= linked.manual
       pr.branch ||= !linked.manual
+
+      const prModelKey = `${record.model.providerID}\0${record.model.id}`
+      const prModel = pr.models.get(prModelKey) ?? bucket()
+      addUsage(prModel, record)
+      pr.models.set(prModelKey, prModel)
+
+      const prVariantKey = `${prModelKey}\0${record.model.variant ?? ""}`
+      const prVariant = pr.variants.get(prVariantKey) ?? bucket()
+      addUsage(prVariant, record)
+      pr.variants.set(prVariantKey, prVariant)
     } else {
       addUsage(unassigned, record)
     }
@@ -339,8 +355,23 @@ export function aggregate(data: ExportData, filter: ReportFilter = {}, now = Dat
     .map((pr) => {
       const value = prBuckets.get(pr.key)
       const metrics = finish(value?.bucket ?? bucket())
+      const directory = directories.get(pr.projectID) ?? pr.directory
+      const models: ModelGroupMetrics[] = [...(value?.models ?? new Map<string, Bucket>()).entries()].map(([key, model]) => {
+        const [providerID, modelID] = key.split("\0")
+        const variants = [...(value?.variants ?? new Map<string, Bucket>()).entries()]
+          .filter(([variantKey]) => variantKey.startsWith(`${key}\0`))
+          .map(([variantKey, variant]) => {
+            const [, , effort] = variantKey.split("\0")
+            return { ...modelValues(providerID, modelID, variant), ...(effort ? { variant: effort } : {}) }
+          })
+          .sort((a, b) => (a.variant ?? "").localeCompare(b.variant ?? ""))
+        return { ...modelValues(providerID, modelID, model), variants }
+      })
       return {
         pr,
+        projectName: basename(directory) || pr.projectID.slice(0, 8),
+        projectDirectory: directory,
+        models: models.sort((a, b) => b.cost - a.cost),
         ...metrics,
         attribution: value?.manual && value.branch ? "mixed" : value?.manual ? "manual" : value?.branch ? "branch" : "none",
         githubLinesAdded: pr.additions,

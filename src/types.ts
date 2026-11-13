@@ -142,6 +142,9 @@ export interface ModelGroupMetrics extends Omit<ModelMetrics, "variant"> {
 
 export interface PullRequestMetrics extends Metrics {
   pr: PullRequestRecord
+  projectName: string
+  projectDirectory: string
+  models: ModelGroupMetrics[]
   attribution: "branch" | "manual" | "mixed" | "none"
   githubLinesAdded: number
   githubLinesDeleted: number
